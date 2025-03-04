@@ -1,6 +1,6 @@
 use crate::characters::Character;
 
-use crate::combat::{Action, DamageType};
+use crate::combat::{Action, ActionStack, DamageType};
 use crate::player::PlayerInput;
 use crate::effects::Effect;
 
@@ -40,8 +40,8 @@ pub trait WorldContext {
 
     // ~~~~~~~~~~~~~~~~~~~ FUNDAMENTALS ~~~~~~~~~~~~~~~~~~~
 
-    /// Processes a turn in this world context
-    fn process_turn(&mut self) -> Result<(),String>;
+    /// Processes a turn in this world context.
+    fn process_turn(&mut self, logger: Option<&dyn TurnLogger>) -> Result<(),String>;
 
     /// Processes player input command (e.g. handing an item or exchanging characters / equipment)
     fn process_player_input(&mut self, input: &PlayerInput) -> Result<String,String>;
@@ -99,3 +99,19 @@ pub trait WorldContext {
     fn request_reactions(&mut self, action: &Action) -> Vec<Action>;
 }
 
+
+/// Turns can have a lot of interesting information that is often times ignored. E.g. when
+/// calculating hundreds of turns rapidly, the individual maneuvers, reactions, and effects are
+/// of each turn can be discarded after they are applied.
+///
+/// In order to 'preserve' the details from turn resolution, a `TurnLogger` can be provided that
+/// gets access to these details before they are discarded.
+///
+/// This is how e.g. UI input from turn resolution can be caught and displayed.
+pub trait TurnLogger {
+
+    /// Called during combat after every action stack is built (and before it is resolved).
+    /// Can be used to log the entire 'happening' of the one maneuver.
+    fn maneuver_stack(&self, stack: &ActionStack);
+
+}

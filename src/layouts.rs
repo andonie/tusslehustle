@@ -308,7 +308,7 @@ mod tests {
 
         for _ in 0..8 {
 
-            combat.process_turn().unwrap();
+            combat.process_turn(None).unwrap();
 
             {
                 let lindtbert = combat.get_character(&"Lindtbert".to_string()).unwrap();

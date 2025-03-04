@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use crate::characters::{CharUnit, Character, Stats};
 use crate::effects::Effect;
 use crate::player::PlayerInput;
-use crate::world::WorldContext;
+use crate::world::{TurnLogger, WorldContext};
 use crate::mov::{Maneuver, Counter};
 use crate::text::{InfoGrid, InfoLine, TextFormatting};
 
@@ -40,7 +40,7 @@ impl Combat {
 /// Each combat is a world context, meaning it **independently processes turns**.
 impl WorldContext for Combat {
 
-    fn process_turn(&mut self) -> Result<(), String> {
+    fn process_turn(&mut self, logger: Option<&dyn TurnLogger>) -> Result<(), String> {
 
         // Build Turn Order for this round
 
@@ -69,6 +69,9 @@ impl WorldContext for Combat {
                 panic!("Shouldn't happen!");
             }
 
+            if let Some(logger) = &logger {
+                logger.maneuver_stack(&maneuver_stack);
+            }
             println!("STACK:\n{}", maneuver_stack.format_line(0, TextFormatting::Console));
 
             // The move stack is now filled, describing the complete action
@@ -248,7 +251,7 @@ impl Display for Action {
 /// damage as magical lightning damage.
 /// 3. The character has a one-time magical shield, which deals back magical twice radiant damage
 /// 4. Under a special effect, the opponent has been knocked out for 4 turns.
-struct ActionStack {
+pub struct ActionStack {
 
     /// The stack with a running count of actions for resolution. As other Characters react to
     /// "what's happening", new actions are added on top of this stack. In turn actions are
@@ -832,7 +835,7 @@ mod tests {
         let charname = "Lindtbert".to_string();
         let hp_pre = combat.get_character(&charname).unwrap().hp();
 
-        combat.process_turn().unwrap();
+        combat.process_turn(None).unwrap();
 
         for char in combat.iter_characters() {
             println!("{}", char.display(20, 3, TextFormatting::Console).join("\n"));
@@ -869,7 +872,7 @@ mod tests {
 
         for _ in 0..8 {
 
-            combat.process_turn().unwrap();
+            combat.process_turn(None).unwrap();
 
             {
                 let num_lines = 4;
