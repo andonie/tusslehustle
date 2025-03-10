@@ -295,9 +295,13 @@ fn truncate_outlist(out_lines: &mut Vec<String>, h: usize) {
 }
 
 fn expand_wordlists(linewords: Vec<Vec<(String, usize)>>, w: usize) -> Vec<String> {
-    linewords.into_iter()
+    // Calculate the length of the last line
+    let last_line = linewords.last().unwrap();
+    let last_line_length = last_line.iter().map(|(word, l)| *l).sum::<usize>()
+        + last_line.len() - 1; // Add one empty space in between every word
+    let mut out: Vec<String> = linewords.into_iter()
         // Concatenate words
-        .map(|words| words.iter().fold(String::with_capacity(w), |mut acc, (w, _)| {
+        .map(|words| words.iter().fold(String::new(), |mut acc, (w, _)| {
             if acc.is_empty() {
                 acc.push_str(w);
                 acc
@@ -307,7 +311,20 @@ fn expand_wordlists(linewords: Vec<Vec<(String, usize)>>, w: usize) -> Vec<Strin
                 acc
             }
         }))
-        .collect()
+        .collect();
+
+    if last_line_length < w {
+        // Pad last line with empty spaces as needed
+        let mut last_line = out.last_mut().unwrap();
+        for _ in 0..(w-last_line_length) {
+            last_line.push(' ');
+        }
+    }
+    // Validate that laste line is expanded to correct size
+
+
+
+    out
 }
 
 /// Anything that makes words can be displayed as an `InfoGrid`. This implementation takes all words

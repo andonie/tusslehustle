@@ -107,7 +107,8 @@ impl<'a> InfoGrid for LinearLayout<'a> {
 
         let mut output = Vec::new();
 
-        // Basic math with the frame formatting and spacing
+        // In case horizontal layout computes horizontal legths, save each column length in here
+        let mut h_lengths = Vec::new();
 
         let built_content_lines: Vec<Vec<String>> = match &self.direction {
             // Horizontal Layout:
@@ -155,6 +156,7 @@ impl<'a> InfoGrid for LinearLayout<'a> {
                             charnum_w_remainder[i].1 += 1;
                         }
 
+                        h_lengths = charnum_w_remainder.iter().map(|(g, w, _)| *w).collect();
                         charnum_w_remainder.iter().map(|(g, w, _) | g.display(*w, available_line_num, formatting)).collect()
                     }
                 }
@@ -214,7 +216,7 @@ impl<'a> InfoGrid for LinearLayout<'a> {
                     top_row.push(frametype.top_left());
                     for (n, g) in built_content_lines.iter().enumerate() {
                         // Fill horizontal bits for the whole grid + 2 spaces on the side
-                        top_row.push_str(&frametype.hor().to_string().repeat(g[0].len() + 2));
+                        top_row.push_str(&frametype.hor().to_string().repeat(h_lengths[n] + 2));
                         // Push T Junction (unless this is the last, in which case we add a corner)
                         if n != built_content_lines.len() - 1 {
                             top_row.push(frametype.joint(JointType::TDown));
@@ -264,7 +266,7 @@ impl<'a> InfoGrid for LinearLayout<'a> {
                     bottom_row.push(frametype.bottom_left());
                     for (n, g) in built_content_lines.iter().enumerate() {
                         // Fill horizontal bits for the whole grid + 2 spaces on the side
-                        bottom_row.push_str(&frametype.hor().to_string().repeat(g[0].len() + 2));
+                        bottom_row.push_str(&frametype.hor().to_string().repeat(h_lengths[n] + 2));
                         // Push T Junction (unless this is the last, in which case we add a corner)
                         if n != built_content_lines.len() - 1 {
                             bottom_row.push(frametype.joint(JointType::TUp));

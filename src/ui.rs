@@ -70,14 +70,10 @@ impl TurnLogger for CombatTurnDisplay {
 /// the
 impl TextUI for CombatTurnDisplay {
     fn render(&self, context: &dyn WorldContext, w: usize, h: usize, formatting: TextFormatting) -> Vec<String> {
-        let mut main_layout = LinearLayout::configure(LayoutDirection::Vertical, LayoutSizing::Distribute, None);
-        let character_layout = LinearLayout::from(context.find_characters(&|c| true).iter().map(|c| *c as &dyn InfoGrid).collect());
+        let mut main_layout = LinearLayout::configure(LayoutDirection::Horizontal, LayoutSizing::Distribute, Some(FrameType::Double));
+        let mut character_layout = LinearLayout::from(context.find_characters(&|c| true).iter().map(|c| *c as &dyn InfoGrid).collect());
+        character_layout.set_direction(LayoutDirection::Vertical);
         main_layout.add(&character_layout, 1);
-        // let res = self.turn_description.display(30, 4, self.formatting);
-        //
-        // for l in res {
-        //     println!("{}", l);
-        // }
 
         main_layout.add(&self.turn_description, 1);
 
