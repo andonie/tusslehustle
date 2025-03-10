@@ -21,7 +21,7 @@ use crate::text::{FrameType, InfoGrid, InfoLine, JointType, TextFormatting};
 
 
 
-enum LayoutDirection {
+pub enum LayoutDirection {
     Horizontal, Vertical,
 }
 
@@ -36,7 +36,7 @@ pub enum LayoutSizing {
 }
 
 /// A linear layout
-struct LinearLayout<'a> {
+pub struct LinearLayout<'a> {
     /// The direction that this layout projects its wrapped sub-elements on
     direction: LayoutDirection,
     /// The sizing strategy to use
@@ -57,7 +57,7 @@ struct CardLayout<'a> {
 
 impl<'a> LinearLayout<'a> {
 
-    fn empty() -> Self {
+    pub fn empty() -> Self {
         LinearLayout {
             direction: LayoutDirection::Horizontal,
             sizing: LayoutSizing::Distribute,
@@ -66,7 +66,16 @@ impl<'a> LinearLayout<'a> {
         }
     }
 
-    fn from(wrapped: Vec<&'a dyn InfoGrid>) -> Self {
+    pub fn configure(direction: LayoutDirection, sizing: LayoutSizing, frame: Option<FrameType>) -> Self {
+        LinearLayout {
+            direction,
+            sizing,
+            frame,
+            wrapped: vec![],
+        }
+    }
+
+    pub fn from(wrapped: Vec<&'a dyn InfoGrid>) -> Self {
         let mut ret = Self::empty();
         for w in wrapped {
             ret.add(w, 1);
@@ -74,19 +83,19 @@ impl<'a> LinearLayout<'a> {
         ret
     }
 
-    fn add(&mut self, g: &'a dyn InfoGrid, weight: usize) {
+    pub fn add(&mut self, g: &'a dyn InfoGrid, weight: usize) {
         self.wrapped.push((g, weight));
     }
 
-    fn set_direction(&mut self, d: LayoutDirection) {
+    pub fn set_direction(&mut self, d: LayoutDirection) {
         self.direction = d;
     }
 
-    fn set_frame(&mut self, f: Option<FrameType>) {
+    pub fn set_frame(&mut self, f: Option<FrameType>) {
         self.frame = f;
     }
 
-    fn set_sizing(&mut self, s: LayoutSizing) {
+    pub fn set_sizing(&mut self, s: LayoutSizing) {
         self.sizing = s;
     }
 
@@ -100,13 +109,12 @@ impl<'a> InfoGrid for LinearLayout<'a> {
 
         // Basic math with the frame formatting and spacing
 
-        // Number of available line only shifts by 2 for frames
-        let available_line_num = h - if let Some(_) = self.frame {2} else {0};
-
         let built_content_lines: Vec<Vec<String>> = match &self.direction {
             // Horizontal Layout:
             // -> Attach all individual lines created by the wrapped elements
             LayoutDirection::Horizontal => {
+                // Number of available line only shifts by 2 for frames
+                let available_line_num = h - if let Some(_) = self.frame {2} else {0};
                 // Calculate available line length for wrapped,
                 // taking out chars allocated for spacing between elements (such as " | ")
                 let available_line_len = w - (self.wrapped.len() - 1) // minimum: empty spaces
@@ -152,7 +160,45 @@ impl<'a> InfoGrid for LinearLayout<'a> {
                 }
             }
             LayoutDirection::Vertical => {
-                vec![]
+                // Vertical Layout:
+                // Each element receives 100% (available) width
+
+                // Number of available lines shifts if a frame is involved by one line between (and
+                // around) all wrapped elements
+                let available_line_num = h - if let Some(_) = self.frame {self.wrapped.len()+1} else {0};
+
+                // Calculate Available Line Width (Account for Frame elements ("| " per side)
+                let available_line_width = w - if self.frame.is_some() {4} else {0};
+
+                // Based on sizing strategy, distribute all available lines to each wrapped element
+                match self.sizing {
+                    LayoutSizing::Absolute => {
+                        // Absolute Layout --> Every Subgrid receives exactly `weight` lines
+                        // to work with.
+                        self.wrapped.iter().map(|(g, weight)| g.display(available_line_width, *weight, formatting)).collect()
+                    }
+                    LayoutSizing::Distribute => {
+                        let total_weight = self.wrapped.iter().fold(0, |mut acc, (_, weight)| acc + *weight);
+                        let mut linenums_w_remainder: Vec<(&dyn InfoGrid, usize, usize)> = self.wrapped.iter().map(|(g, w)| {
+                            let numerator = w * available_line_num;
+                            (*g, numerator / total_weight, numerator % total_weight)
+                        }).collect();
+
+                        let distributed = linenums_w_remainder.iter().fold(0, |mut acc, (_, w, _)| acc+w);
+                        let remaining = available_line_num - distributed;
+                        assert!(remaining < self.wrapped.len());
+
+                        let mut indices: Vec<usize> = (0..linenums_w_remainder.len()).collect();
+                        // Sort indices by remainder
+                        indices.sort_by_key(|i| linenums_w_remainder[*i].2);
+
+                        for &i in indices.iter().take(remaining) {
+                            linenums_w_remainder[i].1 += 1;
+                        }
+
+                        linenums_w_remainder.iter().map(|(g, he, _)| g.display(available_line_width, *he, formatting)).collect()
+                    }
+                }
             }
         };
 
@@ -160,6 +206,8 @@ impl<'a> InfoGrid for LinearLayout<'a> {
         // appropriately, and adding frame characters (if configured)
         match &self.direction {
             LayoutDirection::Horizontal => {
+                // Number of available line only shifts by 2 for frames
+                let available_line_num = h - if let Some(_) = self.frame {2} else {0};
                 // If a Frametype is provided, start with a row of the frame
                 if let Some(frametype) = &self.frame {
                     let mut top_row = String::with_capacity(w);
@@ -189,6 +237,11 @@ impl<'a> InfoGrid for LinearLayout<'a> {
 
                     // Zip Together Content
                     for (x, grid) in built_content_lines.iter().enumerate() {
+                        if i >= grid.len() {
+                            for line in grid {
+                                println!("Line: {}", line);
+                            }
+                        }
                         line.push_str(&grid[i]);
                         line.push(' ');
                         // If frame type set, add frame after each grid
@@ -223,7 +276,40 @@ impl<'a> InfoGrid for LinearLayout<'a> {
                 }
 
             }
-            LayoutDirection::Vertical => {}
+            LayoutDirection::Vertical => {
+
+                // If a frame is provided, the top row is just the frame
+                if let Some(frametype) = &self.frame {
+                    output.push(format!("{}{}{}", frametype.top_left(),
+                                        frametype.hor().to_string().repeat(w-2),
+                                        frametype.top_right()));
+                }
+
+                // Put all inputs together
+                let last_line_index = built_content_lines.len() - 1;
+                for (line_index, lines) in built_content_lines.into_iter().enumerate() {
+                    let final_index = lines.len() - 1;
+                    for (n, line) in lines.into_iter().enumerate() {
+                        match &self.frame {
+                            None => output.push(line),
+                            Some(f) => {
+                                output.push(format!("{} {} {}", f.ver(), line, f.ver()));
+                                if n == final_index && line_index != last_line_index {
+                                    output.push(format!("{}{}{}", f.joint(JointType::TRight), f.hor().to_string().repeat(w-2), f.joint(JointType::TLeft)));
+                                }
+                            }
+                        }
+                    }
+
+                }
+
+                // If a frame is provided, the bottom row is just the frame
+                if let Some(frametype) = &self.frame {
+                    output.push(format!("{}{}{}", frametype.bottom_left(),
+                                        frametype.hor().to_string().repeat(w-2),
+                                        frametype.bottom_right()));
+                }
+            }
         }
 
 
@@ -318,8 +404,9 @@ mod tests {
                 let mut view = LinearLayout::from(vec![lindtbert, baddie]);
 
                 view.set_frame(Some(FrameType::Double));
+                view.set_direction(LayoutDirection::Vertical);
 
-                for line in view.display(50, 7, TextFormatting::Console) {
+                for line in view.display(50, 12, TextFormatting::Console) {
                     println!("{}", line);
                 }
 

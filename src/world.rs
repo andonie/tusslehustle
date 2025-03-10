@@ -1,8 +1,7 @@
 use crate::characters::Character;
 
-use crate::combat::{Action, ActionStack, DamageType};
+use crate::combat::{Action, ActionStack};
 use crate::player::PlayerInput;
-use crate::effects::Effect;
 
 /// Top-Level Game Structure, containing an arbitrary number of game contexts that are run in
 /// a **turn-based simulation** based on all actors configuration, similarly to a
@@ -41,7 +40,7 @@ pub trait WorldContext {
     // ~~~~~~~~~~~~~~~~~~~ FUNDAMENTALS ~~~~~~~~~~~~~~~~~~~
 
     /// Processes a turn in this world context.
-    fn process_turn(&mut self, logger: Option<&dyn TurnLogger>) -> Result<(),String>;
+    fn process_turn(&mut self, logger: Option<&mut dyn TurnLogger>) -> Result<(),String>;
 
     /// Processes player input command (e.g. handing an item or exchanging characters / equipment)
     fn process_player_input(&mut self, input: &PlayerInput) -> Result<String,String>;
@@ -112,6 +111,6 @@ pub trait TurnLogger {
 
     /// Called during combat after every action stack is built (and before it is resolved).
     /// Can be used to log the entire 'happening' of the one maneuver.
-    fn maneuver_stack(&self, stack: &ActionStack);
+    fn maneuver_stack(&mut self, stack: &ActionStack);
 
 }

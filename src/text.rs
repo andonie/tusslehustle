@@ -45,6 +45,7 @@ impl TextFormatting {
             "hp" => "\x1b[31m", // Red
             "mp" => "\x1b[34m", // Blue
             "ap" => "\x1b[32m", // Green
+            "PHY" => "\x1b[34m",//
             &_ => "", // Unknown case -> do no color change / empty string
         }
     }
@@ -80,6 +81,20 @@ impl TextFormatting {
             // If the `info_class` is known, add a console color (code) to this information
             TextFormatting::Console => TextFormatting::format_console(plain_string, info_class),
         }
+    }
+
+    /// Utility function can be used to split a **plain** (i.e. unformatted) string into words,
+    /// each with
+    ///
+    /// # Parameters
+    ///
+    /// * `sentence`: Can technically be more (or less) than one sentence. A set of **unformatted**
+    /// words to describe what's happening.
+    /// * `info_class`: The info class to apply to all words.
+    /// * `more_info`: Additional info to include with the words (in HTML formatting)
+    pub fn to_words(&self, sentence: String, info_class: &str, mut more_info: Option<String>) -> Vec<(String, usize)> {
+        sentence.split_whitespace().map(|w|
+            (self.enrich_text(w.to_string(), info_class, more_info.take()), w.len())).collect()
     }
 }
 
@@ -211,14 +226,88 @@ impl InfoLine for i64 {
 }
 
 /// Describes **formatted game info** that is **encoded in human-readable words**.
-/// This trait applies to
+/// This trait applies to things like an Action Stack that expresses 'rich' information that can't
+/// be encoded in constructs like bars or (statically placed) numbers alone.
 ///
 /// # Displaying words
 ///
 /// Words are expected to be printed one after another, separated by " "
-trait MakesWords {
+pub trait MakesWords {
     /// Formats a list of individiual words, each with their **visible charlength**.
     fn format_words(&self, formatting: TextFormatting) -> Vec<(String, usize)>;
+}
+
+/// 'Trivial' Implementation of `MakesWords` from forwards content to formatting `enrich_text`
+impl MakesWords for Vec<(String, &str, Option<String>)> {
+    fn format_words(&self, formatting: TextFormatting) -> Vec<(String, usize)> {
+        self.clone().into_iter().map(|(w, info_class, add_info)| {
+            let len = w.len();
+            (formatting.enrich_text(w, info_class, add_info), len)
+        }).collect()
+    }
+}
+
+
+/// Convenience function builds
+fn fold_word_line_break(w: usize) -> Box<dyn Fn(Vec<Vec<(String, usize)>>, (String, usize)) -> Vec<Vec<(String, usize)>>> {
+    let fun = move |mut acc: Vec<Vec<(String, usize)>>, (word, wordlength): (String, usize)| {
+        let last_line = acc.last_mut().unwrap();
+
+        if last_line.is_empty() {
+            last_line.push((word, wordlength));
+            return acc;
+        }
+
+        // Build total character length of this line from wrapped words + spaces in between
+        let current_charlen = last_line.iter().fold(0, |mut acc, (_, l)| acc + l)
+            + last_line.len() - 1; // One char for space allocated between all words
+
+
+        if current_charlen + wordlength + 1 > w {
+            // If empty spaces are needed to finish of `last_line`'s appropriate length, add
+            // add them to the last word
+            if current_charlen < w {
+                let (word, l) = last_line.last_mut().unwrap();
+                for _ in 0..(w - current_charlen) {
+                    word.push(' ');
+                }
+                *l += w-current_charlen;
+            }
+            acc.push(vec![(word, wordlength)]);
+        } else {
+            // Enough Space -> Add to current line
+            last_line.push((word, wordlength));
+        }
+
+        acc
+    };
+    Box::new(fun)
+}
+
+fn truncate_outlist(out_lines: &mut Vec<String>, h: usize) {
+    if out_lines.len() > h {
+        out_lines.truncate(h);
+        let mut last_line = out_lines.last_mut().unwrap();
+        if last_line.len() >= 3 {
+
+        }
+    }
+}
+
+fn expand_wordlists(linewords: Vec<Vec<(String, usize)>>, w: usize) -> Vec<String> {
+    linewords.into_iter()
+        // Concatenate words
+        .map(|words| words.iter().fold(String::with_capacity(w), |mut acc, (w, _)| {
+            if acc.is_empty() {
+                acc.push_str(w);
+                acc
+            } else {
+                acc.push(' ');
+                acc.push_str(w);
+                acc
+            }
+        }))
+        .collect()
 }
 
 /// Anything that makes words can be displayed as an `InfoGrid`. This implementation takes all words
@@ -232,41 +321,42 @@ impl<T: MakesWords> InfoGrid for T {
         let words = self.format_words(formatting);
 
         // Split words first into lines as needed
-        let line_split_words = words.into_iter().fold(vec![vec![]], |mut acc: Vec<Vec<(String, usize)>>, (a, wordlength): (String, usize)| {
-            let last_line = acc.last_mut().unwrap();
-
-            // Build total character length of this line from wrapped words + spaces in between
-            let current_charlen = last_line.iter().fold(0, |mut acc, (_, l)| acc + l)
-                + last_line.len() - 1; // One char for space allocated between all words
-
-            if current_charlen + wordlength + 1 > w {
-                // If empty spaces are needed to finish of `last_line`'s appropriate length, add
-                // add them to the last word
-                if current_charlen < w {
-                    let (word, l) = last_line.last_mut().unwrap();
-                    for _ in 0..(w - current_charlen) {
-                        word.push(' ');
-                    }
-                    *l += w-current_charlen;
-                }
-                acc.push(vec![(a, wordlength)]);
-            } else {
-                // Enough Space -> Add to current line
-                last_line.push((a, wordlength));
-            }
-
-            acc
-        });
+        // implementation is modelled as a single fold, consuming all words generated
+        let line_split_words = words.into_iter().fold(vec![vec![]], fold_word_line_break(w));
 
         // Now expand all sorted lines of words into String lines
-        line_split_words.into_iter()
-            // Concatenate words
-            .map(|words| words.iter().fold(String::new(), |mut acc, (w, _)| acc + " " + w))
-            .collect()
+        let mut out_lines: Vec<String> = expand_wordlists(line_split_words, w);
+
+        truncate_outlist(&mut out_lines, h);
+
+        out_lines
     }
 }
 
+/// Implementation of `InfoGrid` for a list of interpreted words ignores the provided
+/// `TextFormatting`, as each word is presumably formatted.
+impl InfoGrid for Vec<(String, usize)> {
+    fn display(&self, w: usize, h: usize, _: TextFormatting) -> Vec<String> {
+        // Fold lines
+        let line_split_words = self.clone().into_iter().fold(vec![vec![]], fold_word_line_break(w));
 
+        // Now expand all sorted lines of words into String lines
+        let mut out_lines: Vec<String> = expand_wordlists(line_split_words, w);
+
+        // Truncate if too long
+        truncate_outlist(&mut out_lines, h);
+
+        // Fill with empty spaces if too short
+        if out_lines.len() < h {
+            for _ in 0..(h - out_lines.len()) {
+                out_lines.push(" ".to_string().repeat(w));
+            }
+        }
+
+        out_lines
+
+    }
+}
 
 
 
@@ -525,6 +615,19 @@ mod tests {
                 print!("{}\n", style.render_bar(16, val, 100))
             }
 
+        }
+
+
+    }
+
+
+    #[test]
+    fn test_wordwrap() {
+
+        let words = TextFormatting::Console.to_words("Mary had a super awesome lamb full of funny moments".to_string(), "test", None);
+
+        for line in words.display(10, 4, TextFormatting::Console) {
+            println!("{}", line);
         }
 
 

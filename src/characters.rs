@@ -6,7 +6,7 @@ use crate::effects::Effect;
 use crate::combat::{DamageType, Actor, Damage, Action, EntityPointer};
 use crate::world::WorldContext;
 use crate::mov::{BarehandedBlow, Maneuver, Reaction};
-use crate::text::{BarStyle, InfoGrid, TextFormatting, text_util, InfoLine};
+use crate::text::{BarStyle, InfoGrid, TextFormatting, text_util, InfoLine, MakesWords};
 use crate::equipment::{Equipment, };
 
 /// Fundamental stats that any game entity can provide.
@@ -368,6 +368,20 @@ impl CharUnit {
             CharUnit::AP(v) => *v,
             CharUnit::VIT(v) => *v,
         }
+    }
+}
+
+impl MakesWords for CharUnit {
+    fn format_words(&self, formatting: TextFormatting) -> Vec<(String, usize)> {
+        let mut output = Vec::new();
+
+        // Express amount
+        output.extend(formatting.to_words(self.unit_value().format_line(5, formatting), "amount", None));
+
+        // Express Unit
+        output.extend(formatting.to_words(self.unit_name().to_string(), self.unit_name(), None));
+
+        output
     }
 }
 

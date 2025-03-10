@@ -1,4 +1,3 @@
-use crate::characters::Character;
 use crate::world;
 
 pub struct PlayerInput {

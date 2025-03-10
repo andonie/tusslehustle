@@ -1,11 +1,12 @@
 
 use std::fmt::{Display, Formatter};
+use std::io::stdout;
 use crate::characters::{CharUnit, Character, Stats};
 use crate::effects::Effect;
 use crate::player::PlayerInput;
 use crate::world::{TurnLogger, WorldContext};
 use crate::mov::{Maneuver, Counter};
-use crate::text::{InfoGrid, InfoLine, TextFormatting};
+use crate::text::{InfoGrid, InfoLine, MakesWords, TextFormatting};
 
 ///
 /// Simulates combat between Characters. Each character's **party** affiliation defines the Teams,
@@ -40,7 +41,7 @@ impl Combat {
 /// Each combat is a world context, meaning it **independently processes turns**.
 impl WorldContext for Combat {
 
-    fn process_turn(&mut self, logger: Option<&dyn TurnLogger>) -> Result<(), String> {
+    fn process_turn(&mut self, mut logger: Option<&mut dyn TurnLogger>) -> Result<(), String> {
 
         // Build Turn Order for this round
 
@@ -69,10 +70,13 @@ impl WorldContext for Combat {
                 panic!("Shouldn't happen!");
             }
 
-            if let Some(logger) = &logger {
-                logger.maneuver_stack(&maneuver_stack);
+            if let Some( l) = logger {
+                l.maneuver_stack(&maneuver_stack);
+                // 'put it back where you found it'
+                // Since the assignment moved the option, reset for next iteration
+                logger = Some(l);
             }
-            println!("STACK:\n{}", maneuver_stack.format_line(0, TextFormatting::Console));
+
 
             // The move stack is now filled, describing the complete action
             // from Move to final response
@@ -226,14 +230,27 @@ impl Action {
     }
 }
 
-impl InfoLine for Action {
-    fn format_line(&self, len: usize, formatting: TextFormatting) -> String {
-        // First: Source Actor
-        let source = self.source.format_line(0, formatting);
-        let target = self.target.format_line(0, formatting);
+/// Verbalizes the happenings of this action in words.
+impl MakesWords for Action {
+    fn format_words(&self, formatting: TextFormatting) -> Vec<(String, usize)> {
+        let mut output = Vec::new();
 
+        // Express source of action
+        output.extend(self.source.format_words(formatting));
 
-        format!("{} {} {} {} {}", source, self.effect.verb(), target, self.effect.preposition(), self.effect.format_value(len, formatting))
+        // Express the action-word (i.e. verb) of the action
+        output.extend(self.effect.verb(formatting));
+
+        // Express Target
+        output.extend(self.target.format_words(formatting));
+
+        // Express preposition (to properly introduce the effect value)
+        output.extend(self.effect.preposition(formatting));
+
+        // Express Effect Value (if applicable)
+        output.extend(self.effect.format_value(formatting));
+
+        output
     }
 }
 
@@ -363,25 +380,17 @@ impl ActionStack {
 
 }
 
-impl InfoLine for ActionStack {
-    fn format_line(&self, len: usize, formatting: TextFormatting) -> String {
-        let mut narration = String::new();
+/// Action Stacks can express 'what's happening' in words.
+impl MakesWords for ActionStack {
+    fn format_words(&self, formatting: TextFormatting) -> Vec<(String, usize)> {
+        let mut output = Vec::new();
+
+        // Iterate in FIFO order, which is the order in which the actions on the stack 'happen'
         for action in self.stack.iter() {
-            if narration.is_empty() {
-                narration = action.format_line(0, formatting);
-            } else {
-                narration = format!("{}\n{}", narration, action.format_line(0, formatting));
-            }
+            output.extend(action.format_words(formatting));
         }
 
-        narration
-    }
-}
-
-/// Implementation prints the full action stack onto multiple lines.
-impl InfoGrid for ActionStack {
-    fn display(&self, max_len: usize, num_lines: usize, formatting: TextFormatting) -> Vec<String> {
-        todo!()
+        output
     }
 }
 
@@ -445,18 +454,20 @@ impl ActionEffect {
 
     /// Assigns a (third person singular) verb that well describes this effect. Used to narrate
     /// what's happening during Turn Resolution.
-    pub fn verb(&self) -> &str {
+    pub fn verb(&self, formatting: TextFormatting) -> Vec<(String, usize)> {
         match self {
             ActionEffect::Attack(d) => {
-                d.0.verb()
+                d.0.verb(formatting)
             },
-            ActionEffect::GiveTimedEffect(e, _) => "affects",
-            ActionEffect::Cancel => "cancels",
-            ActionEffect::Canceled => "--",
-            ActionEffect::AdjustDamageAbs(d) => if *d > 0 { "increases the damage of" } else { "decreases the damage of" },
-            ActionEffect::AdjustDamageMul(f) => if *f > 1f64 { "increases the damage of" } else { "decreases the damage of" },
-            ActionEffect::ChangeTarget(_) => "change the target of",
-            ActionEffect::Heal(_) => "heals",
+            ActionEffect::GiveTimedEffect(e, _) => formatting.to_words("affects".to_string(), "effect", None),
+            ActionEffect::Cancel => formatting.to_words("cancels".to_string(), "cncl", None),
+            ActionEffect::Canceled => formatting.to_words("--".to_string(), "ccld", None),
+            ActionEffect::AdjustDamageAbs(d) => if *d > 0 {
+                formatting.to_words("increases the damage of".to_string(), "", None) } else {
+                formatting.to_words("decreases the damage of".to_string(), "", None) },
+            ActionEffect::AdjustDamageMul(f) => if *f > 1f64 { formatting.to_words("increases the damage of".to_string(), "", None) } else { formatting.to_words("decreases the damage of".to_string(), "", None) },
+            ActionEffect::ChangeTarget(_) => formatting.to_words("changes the target of".to_string(), "", None),
+            ActionEffect::Heal(_) => formatting.to_words("heals".to_string(), "", None),
         }
     }
 
@@ -465,37 +476,37 @@ impl ActionEffect {
     /// * "...attacks **for** XYZ Damage"
     /// * "...increases the damage **by** XYZ's difference"
     /// *
-    pub fn preposition(&self) -> &str {
+    pub fn preposition(&self, _: TextFormatting) -> Vec<(String, usize)> {
         match self {
-            ActionEffect::Attack(_) => "for",
-            ActionEffect::GiveTimedEffect(_, _) => "with",
-            ActionEffect::Cancel => "",
-            ActionEffect::Canceled => "",
-            ActionEffect::AdjustDamageAbs(_) => "by",
-            ActionEffect::AdjustDamageMul(_) => "by",
-            ActionEffect::ChangeTarget(_) => "to",
-            ActionEffect::Heal(_) => "for",
+            ActionEffect::Attack(_) => vec![("for".to_string(), 3)],
+            ActionEffect::GiveTimedEffect(_, _) => vec![("with".to_string(), 4)],
+            ActionEffect::Cancel => vec![],
+            ActionEffect::Canceled => vec![],
+            ActionEffect::AdjustDamageAbs(_) | ActionEffect::AdjustDamageMul(_)
+                => vec![("by".to_string(), 2)],
+            ActionEffect::ChangeTarget(_) => vec![("to".to_string(), 2)],
+            ActionEffect::Heal(_) => vec![("for".to_string(), 3)],
         }
     }
 
     /// Formats the value of this effect using a provided `formatting`
-    pub fn format_value(&self, len: usize, formatting: TextFormatting) -> String {
+    pub fn format_value(&self, formatting: TextFormatting) -> Vec<(String, usize)> {
         match self {
-            ActionEffect::Attack(d) => format!("{}", d),
+            ActionEffect::Attack(d) => d.format_words(formatting),
             ActionEffect::GiveTimedEffect(e, t) => {
                 let effect = formatting.enrich_text(e.describe(), "effect", None);
-                format!("{} for {} turns", effect, t)
+                formatting.to_words(format!("{} for {} turns", effect, t), "effect", None)
             }
-            ActionEffect::Cancel => "".to_string(),
-            ActionEffect::Canceled => "".to_string(),
-            ActionEffect::AdjustDamageAbs(a) => a.format_line(len, formatting),
+            ActionEffect::Cancel => vec![],
+            ActionEffect::Canceled => vec![],
+            ActionEffect::AdjustDamageAbs(a) => formatting.to_words(a.format_line(5, formatting), "adjust", None),
             ActionEffect::AdjustDamageMul(m) => {
                 // Calc percentages
                 let percentage_points = ((1f64-m) * 100f64).floor() as i64;
-                format!("{}{}%", if *m < 0f64 {"-"} else {""}, percentage_points)
+                formatting.to_words(format!("{}{}%", if *m < 0f64 {"-"} else {""}, percentage_points), "adjust", None)
             }
-            ActionEffect::ChangeTarget(t) => t.format_line(len, formatting),
-            ActionEffect::Heal(unit) => unit.format_line(len, formatting),
+            ActionEffect::ChangeTarget(t) => t.format_words(formatting),
+            ActionEffect::Heal(unit) => unit.format_words(formatting),
         }
     }
 
@@ -622,6 +633,34 @@ impl InfoLine for EntityPointer {
     }
 }
 
+/// Describes in one or more words who or what this Entity Pointer points towards.
+impl MakesWords for EntityPointer {
+    fn format_words(&self, formatting: TextFormatting) -> Vec<(String, usize)> {
+        match self {
+            EntityPointer::Character(c) => {
+                if c.len() == 1 {
+                    // Default case: Just the one character's name
+                    formatting.to_words(c.first().unwrap().to_string(), "char-target", None)
+                } else {
+                    let chars = c.iter().fold(String::new(), |mut acc, c|
+                        if acc.is_empty() { c.to_string() } else {acc + ", " + c});
+                    formatting.to_words(chars + " as a group", "char-target", None)
+
+                }
+            }
+            EntityPointer::Action(_) => {
+                formatting.to_words("a previous action".to_string(), "action-target", None)
+            }
+            EntityPointer::Effect(_, _) => {
+                formatting.to_words("an effect".to_string(), "effect-target", None)
+            }
+            EntityPointer::Environment => {
+                formatting.to_words("the environment".to_string(), "environment-target", None)
+            }
+        }
+    }
+}
+
 impl Display for EntityPointer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -691,6 +730,20 @@ impl Damage {
     }
 }
 
+impl MakesWords for Damage {
+    fn format_words(&self, formatting: TextFormatting) -> Vec<(String, usize)> {
+        let mut output = Vec::new();
+
+        // First Word: Amount
+        output.extend(formatting.to_words(self.1.format_line(5, formatting), "dmg", None));
+
+        // Second Word: Type
+        output.extend(self.0.format_words(formatting));
+
+        output
+    }
+}
+
 impl InfoLine for Damage {
     fn format_line(&self, len: usize, formatting: TextFormatting) -> String {
         let base = format!("{} {}", self.1, self.0);
@@ -740,28 +793,40 @@ impl DamageType {
         }
     }
 
-    fn verb(&self) -> &str {
+    fn verb(&self, formatting: TextFormatting) -> Vec<(String, usize)> {
         match self {
             DamageType::PHY(t) => {
                 match *t {
-                    "Pierce" => "stabs",
-                    "Slash" => "strikes",
-                    "Blunt" => "pummels",
-                    _ => "attacks"
+                    "Pierce" => formatting.to_words("stabs".to_string(), "phy", None),
+                    "Slash" => formatting.to_words("strikes".to_string(), "phy", None),
+                    "Blunt" => formatting.to_words("pummels".to_string(), "phy", None),
+                    _ => formatting.to_words("attacks".to_string(), "phy", None)
                 }
             }
             DamageType::MAG(t) => {
                 match *t {
-                    "Fire" => "burns",
-                    "Ice" => "freezes",
-                    _ => "casts a spell attack on"
+                    "Fire" => formatting.to_words("burns".to_string(), "mag", None),
+                    "Ice" => formatting.to_words("freezes".to_string(), "mag", None),
+                    _ => formatting.to_words("casts a spell on".to_string(), "mag", None),
                 }
             },
-            DamageType::ZAP(t) => {
-                "zaps"
-            }
-            DamageType::ULT => "obliterates"
+            DamageType::ZAP(t) => formatting.to_words("zaps".to_string(), "zap", None),
+            DamageType::ULT => formatting.to_words("obliterates".to_string(), "ult", None),
         }
+    }
+}
+
+impl MakesWords for DamageType {
+    fn format_words(&self, formatting: TextFormatting) -> Vec<(String, usize)> {
+        let mut output = Vec::new();
+
+        if let DamageType::ULT = self {
+            output.extend(formatting.to_words("[ULT]imate".to_string(),self.get_damage_type_name(), None));
+        } else {
+            output.extend(formatting.to_words(format!("[{}] {}", self.get_damage_type_name(), self.get_subtype_name()), self.get_damage_type_name(), None));
+        }
+
+        output
     }
 }
 

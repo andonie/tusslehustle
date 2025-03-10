@@ -4,7 +4,6 @@
 //! `Reaction`s.
 
 use std::fmt::Display;
-use std::rc::Rc;
 use crate::characters::{Stats, Character};
 use crate::effects::Effect;
 use crate::mov::{Maneuver, Reaction};
