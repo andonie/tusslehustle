@@ -70,11 +70,31 @@ impl TurnLogger for CombatTurnDisplay {
 /// the
 impl TextUI for CombatTurnDisplay {
     fn render(&self, context: &dyn WorldContext, w: usize, h: usize, formatting: TextFormatting) -> Vec<String> {
-        let mut main_layout = LinearLayout::configure(LayoutDirection::Horizontal, LayoutSizing::Distribute, Some(FrameType::Double));
-        let mut character_layout = LinearLayout::from(context.find_characters(&|c| true).iter().map(|c| *c as &dyn InfoGrid).collect());
-        character_layout.set_direction(LayoutDirection::Vertical);
-        main_layout.add(&character_layout, 1);
+        let mut main_layout = LinearLayout::configure(LayoutDirection::Horizontal, LayoutSizing::Distribute, None );
+        // Collect names of all parties involved (to display all characters of the same party together)
+        let all_parties = context.iter_characters().fold(vec![], |mut acc, character| {
+            let party_name = character.party();
+            if !acc.contains(&party_name) {
+                // This name is not yet used. Add to acc
+                acc.push(party_name);
+            }
+            acc
+        });
+        let mut combatant_layout = LinearLayout::configure(LayoutDirection::Horizontal, LayoutSizing::Distribute, None );
+        let mut party_layouts: Vec<LinearLayout> = all_parties.iter().map(|_| LinearLayout::configure(LayoutDirection::Vertical, LayoutSizing::Distribute, Some(FrameType::Single) )).collect();
 
+        for (i, party_name) in all_parties.iter().enumerate() {
+            context.iter_characters().filter(|character| character.party() == *party_name).for_each(|character| {
+                party_layouts[i].add(character as &dyn InfoGrid, 1);
+            });
+        }
+
+        for layout in party_layouts.iter() {
+            combatant_layout.add(layout, 1);
+        }
+
+
+        main_layout.add(&combatant_layout, 2);
         main_layout.add(&self.turn_description, 1);
 
         // Forward render request to now configured layout
@@ -148,7 +168,7 @@ mod tests {
             let mut ui = CombatTurnDisplay::with(TextFormatting::Console);
             combat.process_turn(Some(&mut ui)).unwrap();
 
-            for line in ui.render(&mut combat, 60, 9, TextFormatting::Console) {
+            for line in ui.render(&mut combat, 80, 5, TextFormatting::Console) {
                 println!("{}", line);
             }
 
