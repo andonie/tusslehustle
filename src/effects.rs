@@ -45,7 +45,7 @@ pub struct TimedEffect<'a>(&'a dyn Effect, i64);
 /// ~~~~~~~~~~~~~~~~~~~~  implementations of effects ~~~~~~~~~~~~~~~~~~~~
 
 /// Represents a **linear stat change** for any game stat both basic and specific game stats
-enum StatChange {
+pub enum StatChange {
     // Base Stat Changes
     DEX(i64),
     STR(i64),

@@ -181,6 +181,8 @@ impl InfoLine for i64 {
             (*self as f64, "") // No shortening needed
         };
 
+
+
         // Precision of rounding is based on Removing the M/B/K and the 'size' of the
         // number of Ms/Bs/Ks before the comma
         let precision = if value >= 100.0 {
@@ -206,14 +208,16 @@ impl InfoLine for i64 {
         // Format based on precision
         let formatted = format!("{:.*}", precision, value);
 
-        //
-
         // Remove trailing ".0" when precision is 0
         let mut result = if let Some(_) = formatted.find('.') {
             formatted.trim_end_matches('0').trim_end_matches('.').to_string()
         } else {
             formatted.clone()
         };
+
+        result.push_str(&suffix);
+
+
 
         while result.len() < len {
             // Result length is one short. This can happen because the "." character also requires

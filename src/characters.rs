@@ -452,6 +452,7 @@ impl Character {
         // Copy the base stats
         let mut stats = self.base_stats.copy();
 
+        // Forward all effects
         for effect in &self.all_current_effects() {
             effect.apply_to_stats(&mut stats);
         }
@@ -513,7 +514,7 @@ impl Character {
 
     /// Develops a complete list of all effects affecting this character, including:
     /// - Timed Effects (e.g. poisened, spell buffs/debuffs)
-    fn all_current_effects(&self) -> Vec<Rc<&dyn Effect>> {
+    fn all_current_effects(&self) -> Vec<&Box<dyn Effect>> {
         // Build a new vector to contain all effects to consider for this character at this time
         let mut effect_list = Vec::new();
 
@@ -522,11 +523,11 @@ impl Character {
         //}
 
         // In addition, add all permanent effects from Equipment
-        //for equipment in &self.equipment {
-        //    for effect in &equipment.passive_effects {
-        //        effect_list.push(effect.as_ref());
-        //    }
-        //}
+        for equipment in &self.equipment {
+           for effect in equipment.get_passive_effects() {
+               effect_list.push(effect);
+           }
+        }
 
         // Now that all effects are accounted for, sort this listing to ensure it's ordered in
         // resolution order (ascending by effect order number)
