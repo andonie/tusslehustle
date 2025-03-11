@@ -55,7 +55,7 @@ fn test_combat_view() {
         });
         eq.add_reaction(Box::new(
             Counter::new(DamageType::PHY(""), 0f64, 1f64)));
-        eq.add_passive_effect(Box::new(StatChange::GRT(30)));
+        eq.add_passive_effect(Box::new(StatChange::GRT(10)));
 
         lindtbert.equip(eq).unwrap();
     }

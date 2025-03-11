@@ -518,9 +518,9 @@ impl Character {
         // Build a new vector to contain all effects to consider for this character at this time
         let mut effect_list = Vec::new();
 
-        //for (effect, _) in &self.timed_effects {
-        // effect_list.push(effect.as_ref());
-        //}
+        for (effect, _) in &self.timed_effects {
+            effect_list.push(effect);
+        }
 
         // In addition, add all permanent effects from Equipment
         for equipment in &self.equipment {
