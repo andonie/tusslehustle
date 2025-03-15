@@ -624,6 +624,8 @@ impl Actor for Character {
         }
         // Filter out all effects that timed out
         self.timed_effects.retain(|(_, remaining_time)| *remaining_time > 0);
+
+        // TODO: Check if 'stayalive requirements' are met (HP>0)
     }
 
     fn next_move(&self) -> &dyn Maneuver {
