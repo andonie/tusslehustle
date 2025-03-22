@@ -1,29 +1,29 @@
 use std::thread::sleep;
 use std::time::Duration;
-use untitled::equipment::{Equipment, EquipmentType};
-use untitled::mov::Counter;
-use untitled::text::{InfoGrid, TextFormatting};
-use untitled::world::WorldContext;
-use untitled::characters::{Character, Stats};
-use untitled::combat::{Combat, DamageType};
-use untitled::effects::StatChange;
-use untitled::ui::{CombatTurnDisplay, TextUI};
+use tusslehussle::equipment::{Equipment, EquipmentType};
+use tusslehussle::mov::Counter;
+use tusslehussle::text::{InfoGrid, TextFormatting};
+use tusslehussle::world::WorldContext;
+use tusslehussle::characters::{Character, Stats, CharStat};
+use tusslehussle::combat::{Combat, DamageType};
+use tusslehussle::effects::StatAdditive;
+use tusslehussle::ui::{CombatTurnDisplay, TextUI};
 
 /// Basic Testcharacter to use
-fn test_character(name: String) -> Character {
+fn test_character(name: String, f: f64) -> Character {
     Character::new(String::from(name), None, Stats {
-        str: 3,
-        dex: 8,
-        grt: 6,
-        wil: 2,
-        int: 5,
-        cha: 6,
+        str: (3f64 * f) as i64,
+        dex: (3f64 * f) as i64,
+        grt: (3f64 * f) as i64,
+        wil: (3f64 * f) as i64,
+        int: (3f64 * f) as i64,
+        cha: (3f64 * f) as i64,
     })
 }
 
 fn build_combat() -> Combat {
-    let mut party = vec![test_character("Lindtbert".to_string())];
-    let mut baddies = vec![test_character("Baddie".to_string())];
+    let mut party = vec![test_character("Lindtbert".to_string(), 3f64)];
+    let mut baddies = vec![test_character("Baddie".to_string(), 1f64), test_character("Baddie 2".to_string(), 1f64), ];
     for char in party.iter_mut() {
         char.set_party("Best Friends".to_string());
     }
@@ -55,7 +55,7 @@ fn test_combat_view() {
         });
         eq.add_reaction(Box::new(
             Counter::new(DamageType::PHY(""), 0f64, 1f64)));
-        eq.add_passive_effect(Box::new(StatChange::GRT(10)));
+        eq.add_passive_effect(Box::new(StatAdditive(CharStat::GRT(10))));
 
         lindtbert.equip(eq).unwrap();
     }
@@ -65,13 +65,13 @@ fn test_combat_view() {
         let mut ui = CombatTurnDisplay::with(TextFormatting::Console);
         combat.process_turn(Some(&mut ui)).unwrap();
 
-        for line in ui.render(&mut combat, 80, 5, TextFormatting::Console) {
+        for line in ui.render(&mut combat, 80, 8, TextFormatting::Console) {
             println!("{}", line);
         }
 
         sleep(Duration::from_secs(1));
 
-        print!("\x1b[5A\x1b[80D");
+        print!("\x1b[8A\x1b[80D");
     }
 
 

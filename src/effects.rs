@@ -1,5 +1,5 @@
 use std::fmt::{Display, Formatter};
-use crate::characters::{Character, Stats};
+use crate::characters::{CharStat, Character, Stats};
 use crate::combat::DamageType;
 
 
@@ -44,87 +44,37 @@ pub struct TimedEffect<'a>(&'a dyn Effect, i64);
 
 /// ~~~~~~~~~~~~~~~~~~~~  implementations of effects ~~~~~~~~~~~~~~~~~~~~
 
-/// Represents a **linear stat change** for any game stat both basic and specific game stats
-pub enum StatChange {
-    // Base Stat Changes
-    DEX(i64),
-    STR(i64),
-    GRT(i64),
-    WIL(i64),
-    CHA(i64),
-    INT(i64),
-    // Game Stat Changes
-    MHP(i64), MMP(i64), TAP(i64), MVE(i64), PDF(i64), MDF(i64), MOB(i64), HRG(i64), MRG(i64),
-}
 
-impl StatChange {
-    fn get_value(&self) -> i64 {
-        // Pattern match to all of the base stats to extract diff value
-        match self {
-            StatChange::DEX(v) | StatChange::STR(v) | StatChange::GRT(v) |
-            StatChange::WIL(v) | StatChange::CHA(v) | StatChange::INT(v) |
-            StatChange::MHP(v) | StatChange::MMP(v) | StatChange::TAP(v) |
-            StatChange::MVE(v) | StatChange::PDF(v) | StatChange::MDF(v) |
-            StatChange::MOB(v) | StatChange::HRG(v) | StatChange::MRG(v) => *v,
-        }
-    }
+/// Applies the value wrapped with `CharStat` additively
+pub struct StatAdditive(pub CharStat);
 
-    /// Returns a simple string representation of the target stat
-    fn get_target(&self) -> &str {
-        match self {
-            StatChange::DEX(_) => "DEX",
-            StatChange::STR(_) => "STR",
-            StatChange::GRT(_) => "GRT",
-            StatChange::WIL(_) => "WIL",
-            StatChange::CHA(_) => "CHA",
-            StatChange::INT(_) => "INT",
-            StatChange::MHP(_) => "MHP",
-            StatChange::MMP(_) => "MMP",
-            StatChange::TAP(_) => "TAP",
-            StatChange::MVE(_) => "MVE",
-            StatChange::PDF(_) => "PDF",
-            StatChange::MDF(_) => "MDF",
-            StatChange::MOB(_) => "MOB",
-            StatChange::HRG(_) => "HRG",
-            StatChange::MRG(_) => "MRG"
-        }
-    }
-}
-
-impl Display for StatChange {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {} by {}", if self.get_value() > 0 { "increase" } else { "decrease" },
-            self.get_target(), self.get_value())
-    }
-}
-
-impl Effect for StatChange {
+impl Effect for StatAdditive {
     /// Quick Format: e.g. +5 DEX
     fn describe(&self) -> String {
-        format!("{}{} {}", if self.get_value() > 0 { "+" } else { "-" }, self.get_value().abs(),
-            self.get_target())
+        format!("{}{} {}", if self.0.get_value() > 0 { "+" } else { "-" }, self.0.get_value().abs(),
+            self.0.get_stat_name())
     }
 
     /// Overwrite stat change function to add the delta value of this stat change to the input
     /// `stats` to build.
     fn apply_to_stats(&self, stats: &mut Stats) {
-        match self {
-            StatChange::STR(d) => {
+        match self.0 {
+            CharStat::STR(d) => {
                 stats.str += d;
             }
-            StatChange::DEX(d) => {
+            CharStat::DEX(d) => {
                 stats.dex += d;
             }
-            StatChange::GRT(d) => {
+            CharStat::GRT(d) => {
                 stats.grt += d;
             }
-            StatChange::WIL(d) => {
+            CharStat::WIL(d) => {
                 stats.wil += d;
             }
-            StatChange::CHA(d) => {
+            CharStat::CHA(d) => {
                 stats.cha += d;
             }
-            StatChange::INT(d) => {
+            CharStat::INT(d) => {
                 stats.int += d;
             }
             // All remaining cases cover (specific) game stats

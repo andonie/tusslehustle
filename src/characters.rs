@@ -1,6 +1,7 @@
 use std::cell::{Ref, RefCell};
 use std::cmp::max;
 use std::fmt::Display;
+use std::os::linux::raw::stat;
 use std::rc::Rc;
 use crate::effects::Effect;
 use crate::combat::{DamageType, Actor, Damage, Action, EntityPointer};
@@ -8,6 +9,7 @@ use crate::world::WorldContext;
 use crate::mov::{BarehandedBlow, Maneuver, Reaction};
 use crate::text::{BarStyle, InfoGrid, TextFormatting, text_util, InfoLine, MakesWords};
 use crate::equipment::{Equipment, };
+use crate::layouts::{LayoutDirection, LayoutSizing, LinearLayout};
 
 /// Fundamental stats that any game entity can provide.
 /// These stats are 'dynamic' during gameplay and can change.
@@ -280,6 +282,92 @@ impl Stats {
         self.dex >= req.dex || self.str >= req.str || self.grt >= req.grt || self.wil >= req.wil
             || self.cha >= req.cha || self.int >= req.int
     }
+
+    pub fn iter(&self) -> StatIterator {
+        StatIterator::iterator_for(&self)
+    }
+}
+
+///
+struct StatIterator<'a>  {
+    /// Reference to the stat values
+    stats: &'a Stats,
+    /// Counts stats returned so far. Used to determine which stat to pull next successively.
+    stats_returned: usize
+}
+
+impl <'a> StatIterator<'a> {
+
+    fn iterator_for(stats: &'a Stats) -> Self {
+        StatIterator {
+            stats,
+            stats_returned: 0
+        }
+    }
+
+    /// Builds the next stat to return based on internal state
+    fn build_current_stat(&self) -> Option<<StatIterator<'_> as Iterator>::Item> {
+        match self.stats_returned {
+            0 => Some(CharStat::DEX(self.stats.dex)),
+            1 => Some(CharStat::STR(self.stats.str)),
+            2 => Some(CharStat::GRT(self.stats.grt)),
+            3 => Some(CharStat::WIL(self.stats.wil)),
+            4 => Some(CharStat::CHA(self.stats.cha)),
+            5 => Some(CharStat::INT(self.stats.int)),
+            _ => None,
+        }
+    }
+}
+
+/// Implement Iterator feature
+impl <'a> Iterator for StatIterator<'a> {
+    type Item = CharStat;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_output = self.build_current_stat();
+        self.stats_returned += 1;
+        next_output
+    }
+}
+
+/// Builds a Text Block that neatly represents this stat block.
+impl InfoGrid for Stats {
+    fn display(&self, w: usize, h: usize, formatting: TextFormatting) -> Vec<String> {
+        let mut output: Vec<String> = Vec::new();
+
+
+        // Based on number of lines available, decide how to format each line
+        if h >= 6 {
+            // Single Line per stat
+            output.extend(self.iter().map(|s| s.format_line(w, formatting)).collect::<Vec<String>>());
+        } else {
+            // Double Line per stat
+            let column_size = if w % 2 == 1 {(w / 2)} else {(w / 2) - 1};
+            let mid_el = if w % 2 == 1 {" "} else {"  "};
+
+
+            let mut iter_stats = self.iter();
+            for _ in 0..3 {
+                output.push(format!("{}{}{}",
+                                    iter_stats.next().unwrap().format_line(column_size, formatting),
+                                    mid_el,
+                                    iter_stats.next().unwrap().format_line(column_size, formatting)));
+            }
+
+        }
+
+        // Backfill output to ensure it has sufficient lines
+        while output.len() < h {
+            output.push(" ".to_string().repeat(w));
+        }
+
+        // Truncate if Output length is larger than requested
+        if output.len() > h {
+            output.truncate(h);
+        }
+
+        output
+    }
 }
 
 impl GameStats {
@@ -331,6 +419,7 @@ impl GameStats {
 /// ambiguously), they are used to communicate effectively for things like variable healing effects.
 ///
 ///
+#[derive(Clone, Copy)]
 pub enum CharUnit {
     /// Represents an amount of HP.
     HP(i64),
@@ -340,6 +429,73 @@ pub enum CharUnit {
     AP(i64),
     /// Represents an amount of VIT.
     VIT(i64),
+}
+
+/// Represents a **linear stat** for any game stat both basic and specific game stats
+pub enum CharStat {
+    // Base Stats
+    DEX(i64),
+    STR(i64),
+    GRT(i64),
+    WIL(i64),
+    CHA(i64),
+    INT(i64),
+    // Game Stats
+    MHP(i64), MMP(i64), TAP(i64), MVE(i64), PDF(i64), MDF(i64), MOB(i64), HRG(i64), MRG(i64),
+}
+
+impl CharStat {
+    pub fn get_value(&self) -> i64 {
+        // Pattern match to all of the base stats to extract diff value
+        match self {
+            CharStat::DEX(v) | CharStat::STR(v) | CharStat::GRT(v) |
+            CharStat::WIL(v) | CharStat::CHA(v) | CharStat::INT(v) |
+            CharStat::MHP(v) | CharStat::MMP(v) | CharStat::TAP(v) |
+            CharStat::MVE(v) | CharStat::PDF(v) | CharStat::MDF(v) |
+            CharStat::MOB(v) | CharStat::HRG(v) | CharStat::MRG(v) => *v,
+        }
+    }
+
+    /// Returns a simple string representation of the target stat
+    pub fn get_stat_name(&self) -> &str {
+        match self {
+            CharStat::DEX(_) => "DEX",
+            CharStat::STR(_) => "STR",
+            CharStat::GRT(_) => "GRT",
+            CharStat::WIL(_) => "WIL",
+            CharStat::CHA(_) => "CHA",
+            CharStat::INT(_) => "INT",
+            CharStat::MHP(_) => "MHP",
+            CharStat::MMP(_) => "MMP",
+            CharStat::TAP(_) => "TAP",
+            CharStat::MVE(_) => "MVE",
+            CharStat::PDF(_) => "PDF",
+            CharStat::MDF(_) => "MDF",
+            CharStat::MOB(_) => "MOB",
+            CharStat::HRG(_) => "HRG",
+            CharStat::MRG(_) => "MRG"
+        }
+    }
+
+    pub fn info_class(&self) -> &str {
+        match self {
+            CharStat::DEX(_) => "dex",
+            CharStat::STR(_) => "str",
+            CharStat::GRT(_) => "grt",
+            CharStat::WIL(_) => "wil",
+            CharStat::CHA(_) => "cha",
+            CharStat::INT(_) => "int",
+            CharStat::MHP(_) => "mhp",
+            CharStat::MMP(_) => "mmp",
+            CharStat::TAP(_) => "tap",
+            CharStat::MVE(_) => "mve",
+            CharStat::PDF(_) => "pdf",
+            CharStat::MDF(_) => "mdf",
+            CharStat::MOB(_) => "mob",
+            CharStat::HRG(_) => "hrg",
+            CharStat::MRG(_) => "mrg"
+        }
+    }
 }
 
 impl CharUnit {
@@ -382,6 +538,17 @@ impl MakesWords for CharUnit {
         output.extend(formatting.to_words(self.unit_name().to_string(), self.unit_name(), None));
 
         output
+    }
+}
+
+impl InfoLine for CharStat {
+    fn format_line(&self, len: usize, formatting: TextFormatting) -> String {
+        let name = self.get_stat_name();
+        formatting.enrich_text(
+            format!("{}: {}", name, self.get_value().format_line(len-name.len()-2, formatting)),
+            self.info_class(),
+            None
+        )
     }
 }
 
@@ -739,41 +906,51 @@ impl Actor for Character {
 
 impl InfoGrid for Character {
 
-    fn display(&self, max_len: usize, num_lines: usize, formatting: TextFormatting) -> Vec<String> {
+    fn display(&self, w: usize, h: usize, formatting: TextFormatting) -> Vec<String> {
         // ~~~~~~~~~~~~ INDIVIDUAL STAT PRINTS ~~~~~~~~~~~~
         // HP Bar
         let print_hp = |c: &Character, f| {
-            text_util::render_bar_with_num("HP:", max_len, c.hp(), c.calculate_current_stats().max_hp(), BarStyle::DoubleLines, Some(('<', '>')), Some((&f, "hp", "Hitpoint Infos".to_string())))
+            text_util::render_bar_with_num("HP:", w, c.hp(), c.calculate_current_stats().max_hp(), BarStyle::DoubleLines, Some(('<', '>')), Some((&f, "hp", "Hitpoint Infos".to_string())))
         };
 
         // Name
-        let print_charname = |c: &Character, f| c.name().format_line(max_len, formatting);
+        let print_charname = |c: &Character, f| c.name().format_line(w, formatting);
         // MP Bar
-        let print_mp = |c: &Character, f| text_util::render_bar_with_num("MP:", max_len, c.mp(), c.calculate_current_stats().max_mp(), BarStyle::TwoChars('>', '-'), None, Some((&f, "mp", "MP Infos".to_string())));
+        let print_mp = |c: &Character, f| text_util::render_bar_with_num("MP:", w, c.mp(), c.calculate_current_stats().max_mp(), BarStyle::TwoChars('>', '-'), None, Some((&f, "mp", "MP Infos".to_string())));
         // AP Bar
-        let print_ap = |c: &Character, f| text_util::render_bar_with_num("AP:", max_len, c.ap(), c.calculate_current_stats().max_ap(), BarStyle::TwoChars('!', '.'), None, Some((&f, "ap", "AP Infos".to_string())));
-        // Short Gear overview
-        let print_eq = |c: &Character, f| format!("EQ: {}",
-            c.build_equipment_description(max_len-4)); // Discount 4 characters for "EQ: "
+        let print_ap = |c: &Character, f| text_util::render_bar_with_num("AP:", w, c.ap(), c.calculate_current_stats().max_ap(), BarStyle::TwoChars('!', '.'), None, Some((&f, "ap", "AP Infos".to_string())));
 
-        // A progressive list of strategies to use when displaying the character line/by/line
-        let strategies: Vec<(&dyn Fn(&Self, TextFormatting) -> String, &str)> = vec![
+        // A progressive list of strategies to use when displaying the character line-by-line
+        let oneliner_strategies: Vec<(&dyn Fn(&Self, TextFormatting) -> String, &str)> = vec![
             (&print_charname, "name"),
             (&print_hp, "hp"),
             (&print_mp, "mp"),
             (&print_ap, "ap"),
-            (&print_eq, "eq"),
         ];
 
         // Build Vector Lines
         let mut lines = Vec::new();
-        for i in 0..num_lines {
-            let (strat, info_class) = strategies.get(i).unwrap();
+        for i in 0..h.min(oneliner_strategies.len()) {
+            let (strat, info_class) = oneliner_strategies.get(i).unwrap();
 
             // As the actual input for the line(s), commit the text formatting strategy together
             // with the associated info_class to format accordingly
             lines.push(strat(self, formatting));
         }
+
+        if h > oneliner_strategies.len() {
+            // We have more lines available than we need more minimum info.
+            // -> Add remaining lines with a layout
+            let remaining_lines = h - oneliner_strategies.len();
+            let mut char_layout = LinearLayout::configure(LayoutDirection::Vertical, LayoutSizing::Absolute, None);
+
+            char_layout.add(&self.base_stats, 3);
+
+            // build remaining lines via layout and add to output lines
+            let remaining_lines = char_layout.display(w, remaining_lines, formatting);
+            remaining_lines.into_iter().for_each(|l| lines.push(l));
+        }
+
         lines
     }
 }
@@ -813,7 +990,17 @@ mod tests {
     fn it_works() {
         let character = test_character();
 
+        for stat in character.calculate_current_stats().iter() {
+            let len = 8;
+            let line = stat.format_line(len, TextFormatting::Console);
+            // println!("{}", line);
+            //assert_eq!(line, "DEX: 4  ");
+        }
 
-
+        let lines = character.calculate_current_stats().display(17, 2, TextFormatting::Console);
+        assert_eq!(lines.len(), 2);
+        for line in lines {
+            println!("{}", line);
+        }
     }
 }

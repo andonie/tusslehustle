@@ -89,8 +89,8 @@ impl WorldContext for Combat {
             let char = self.get_character_mut(char).unwrap();
             char.post_turn();
         }
-        
-        
+
+
         // Finished turn
         Ok(())
     }
@@ -711,8 +711,6 @@ pub trait Actor {
     /// but could still be reacted to by other participants, as each reaction will invoke its own
     /// `respond_to_action` opportunity
     fn respond_to_action(&self, context: &dyn WorldContext, action: &Action, reactions: &mut Vec<Action>);
-
-
 }
 
 /// A very simple struct, Damage is described by it's type and amount
@@ -966,3 +964,4 @@ mod tests {
 
     }
 }
+
