@@ -25,28 +25,35 @@ pub enum LayoutDirection {
     Horizontal, Vertical,
 }
 
-/// Lists different sizing strategies layouts can use.
-pub enum LayoutSizing {
+/// Describes a .
+pub enum LayoutWeight {
     /// Most straightforward sizing option:
     ///
     /// Each element receives `weight` number of lines / chars.
-    Absolute,
+    Absolute(usize),
     /// Distribute horizontal/vertical space evenly across all elements below
-    Distribute
+    Distribute(usize)
+}
+
+impl LayoutWeight {
+    pub fn amount(&self) -> usize {
+        match self {
+            LayoutWeight::Absolute(d) => *d,
+            LayoutWeight::Distribute(d) => *d
+        }
+    }
 }
 
 /// A linear layout
 pub struct LinearLayout<'a> {
     /// The direction that this layout projects its wrapped sub-elements on
     direction: LayoutDirection,
-    /// The sizing strategy to use
-    sizing: LayoutSizing,
     /// If set, will consume additional available characters to render the frame around/between
     /// elements of this layout
     frame: Option<FrameType>,
 
     /// A list of all elements this layout wraps, each with their weight.
-    wrapped: Vec<(&'a dyn InfoGrid, usize)>,
+    wrapped: Vec<(&'a dyn InfoGrid, LayoutWeight)>,
 
 }
 
@@ -60,16 +67,14 @@ impl<'a> LinearLayout<'a> {
     pub fn empty() -> Self {
         LinearLayout {
             direction: LayoutDirection::Horizontal,
-            sizing: LayoutSizing::Distribute,
             frame: Some(FrameType::Single),
             wrapped: vec![],
         }
     }
 
-    pub fn configure(direction: LayoutDirection, sizing: LayoutSizing, frame: Option<FrameType>) -> Self {
+    pub fn configure(direction: LayoutDirection, frame: Option<FrameType>) -> Self {
         LinearLayout {
             direction,
-            sizing,
             frame,
             wrapped: vec![],
         }
@@ -78,12 +83,12 @@ impl<'a> LinearLayout<'a> {
     pub fn from(wrapped: Vec<&'a dyn InfoGrid>) -> Self {
         let mut ret = Self::empty();
         for w in wrapped {
-            ret.add(w, 1);
+            ret.add(w, LayoutWeight::Distribute(1));
         }
         ret
     }
 
-    pub fn add(&mut self, g: &'a dyn InfoGrid, weight: usize) {
+    pub fn add(&mut self, g: &'a dyn InfoGrid, weight: LayoutWeight) {
         self.wrapped.push((g, weight));
     }
 
@@ -95,8 +100,62 @@ impl<'a> LinearLayout<'a> {
         self.frame = f;
     }
 
-    pub fn set_sizing(&mut self, s: LayoutSizing) {
-        self.sizing = s;
+
+    // Redis Helper Functions
+
+    /// Distributes exactly `size` among the given Sub-Elements based on their weights configuration
+    ///
+    /// # Returns
+    ///
+    /// The returned Vector contains references tuples of contained sub-element + available amount
+    /// of the given `size` (which can be interpreted as width / height as needed). The numbers
+    /// provided in the second tuple parameter are guaranteed to add up to `size` (unless
+    /// absolute weight configuration exceeds available `size`).
+    fn distribute(&self, size: usize) -> Vec<(&'a dyn InfoGrid, usize)> {
+        // Identify the amount allocated by absolute weights
+        let absolute_amount = self.wrapped.iter().filter(|(_, w)| match w {
+            LayoutWeight::Absolute(_) => true,
+            LayoutWeight::Distribute(_) => false
+        }).fold(0, |acc, (_, abs_weight)| acc+abs_weight.amount());
+
+        if absolute_amount > size {
+            panic!("Provided only {} size but absolute weights add up to {}", size, absolute_amount);
+        }
+
+        // Determine available size to distribute among relative weights
+        let available_for_distribution = size - absolute_amount;
+
+        let total_relative_weights = self.wrapped.iter().filter(|(_, w)|
+            matches!(w, LayoutWeight::Distribute(_)))
+            .fold(0, |acc, (_, w)| acc+w.amount());
+
+        // Calculated list of all elements in order with associated length each
+        // Will be updated throughout the rest of this process.
+        let mut calculated_lengths: Vec<(&'a dyn InfoGrid, usize, Option<usize>)> = self.wrapped.iter().map(|(e, w)| match w {
+            // None signals no way for absolute weights to receive 'extra' from under-distribution
+            LayoutWeight::Absolute(w) => (*e, *w, None),
+            LayoutWeight::Distribute(w) => {
+                let numerator = available_for_distribution * w;
+                (*e, numerator/total_relative_weights, Some(numerator%total_relative_weights))
+            }
+        }).collect();
+
+
+        let mut indices: Vec<usize> = (0..calculated_lengths.len()).collect();
+        // Sort indices by remainder
+        indices.sort_by_key(|i| match calculated_lengths[*i].2 {
+            // Super low priority for
+            None => -200i32,
+            Some(r) => r as i32,
+        });
+
+        let undistributed = size - calculated_lengths.iter().fold(0, |acc, (_, used_length, _ )| acc+used_length);
+
+        for &i in indices.iter().take(undistributed) {
+            calculated_lengths[i].1 += 1;
+        }
+        
+        calculated_lengths.into_iter().map(|(el, len, _)|  (el, len)).collect()
     }
 
 }
@@ -108,7 +167,7 @@ impl<'a> InfoGrid for LinearLayout<'a> {
         let mut output = Vec::new();
 
         // In case horizontal layout computes horizontal legths, save each column length in here
-        let mut h_lengths = Vec::new();
+        let mut h_lengths: Vec<usize> = Vec::new();
 
         let built_content_lines: Vec<Vec<String>> = match &self.direction {
             // Horizontal Layout:
@@ -124,42 +183,12 @@ impl<'a> InfoGrid for LinearLayout<'a> {
                 } else {0};
 
 
-                // Based on sizing strategy, build the content / lines for each wrapped
-                match self.sizing {
-                    LayoutSizing::Absolute => {
-                        // Directly forward weights into w's of wrapped
-                        self.wrapped.iter().map(|(g, weight) | g.display(*weight, available_line_num, formatting)).collect()
-                    }
-                    LayoutSizing::Distribute => {
-                        // Calculate each subgrid's available `w` by distributing weights
-                        // relative to each other / available space
-                        let total_weight = self.wrapped.iter().fold(0, |mut acc, (g, w)| acc + *w );
+                // Distribute the WIDTH across all elements as per weighing
+                let distributed = self.distribute(available_line_len);
+                
+                // Build the lines from each distributed element as finished content lines
+                distributed.into_iter().map(|(el, size)| el.display(size, available_line_num, formatting)).collect()
 
-                        // Review all grids, based on their weight and store them with remainder
-                        let mut charnum_w_remainder = self.wrapped.iter().map(|(g, w)| {
-                            let numerator = w * available_line_len;
-                            (*g, numerator / total_weight, numerator % total_weight)
-                        }).collect::<Vec<(&dyn InfoGrid, usize, usize)>>();
-
-                        let distributed = charnum_w_remainder.iter().fold(0, |mut acc, (_, d, _)| acc+d);
-                        let remaining = available_line_len - distributed;
-
-                        assert!(remaining < self.wrapped.len());
-
-                        // Distribute `remaining` chars among the `remaining` number of wrapped
-                        // in order of highest remainder to lowest
-                        let mut indices: Vec<usize> = (0..charnum_w_remainder.len()).collect();
-                        // Sort indices by remainder
-                        indices.sort_by_key(|i| charnum_w_remainder[*i].2);
-
-                        for &i in indices.iter().take(remaining) {
-                            charnum_w_remainder[i].1 += 1;
-                        }
-
-                        h_lengths = charnum_w_remainder.iter().map(|(g, w, _)| *w).collect();
-                        charnum_w_remainder.iter().map(|(g, w, _) | g.display(*w, available_line_num, formatting)).collect()
-                    }
-                }
             }
             LayoutDirection::Vertical => {
                 // Vertical Layout:
@@ -171,36 +200,12 @@ impl<'a> InfoGrid for LinearLayout<'a> {
 
                 // Calculate Available Line Width (Account for Frame elements ("| " per side)
                 let available_line_width = w - if self.frame.is_some() {4} else {0};
-
-                // Based on sizing strategy, distribute all available lines to each wrapped element
-                match self.sizing {
-                    LayoutSizing::Absolute => {
-                        // Absolute Layout --> Every Subgrid receives exactly `weight` lines
-                        // to work with.
-                        self.wrapped.iter().map(|(g, weight)| g.display(available_line_width, *weight, formatting)).collect()
-                    }
-                    LayoutSizing::Distribute => {
-                        let total_weight = self.wrapped.iter().fold(0, |mut acc, (_, weight)| acc + *weight);
-                        let mut linenums_w_remainder: Vec<(&dyn InfoGrid, usize, usize)> = self.wrapped.iter().map(|(g, w)| {
-                            let numerator = w * available_line_num;
-                            (*g, numerator / total_weight, numerator % total_weight)
-                        }).collect();
-
-                        let distributed = linenums_w_remainder.iter().fold(0, |mut acc, (_, w, _)| acc+w);
-                        let remaining = available_line_num - distributed;
-                        assert!(remaining < self.wrapped.len());
-
-                        let mut indices: Vec<usize> = (0..linenums_w_remainder.len()).collect();
-                        // Sort indices by remainder
-                        indices.sort_by_key(|i| linenums_w_remainder[*i].2);
-
-                        for &i in indices.iter().take(remaining) {
-                            linenums_w_remainder[i].1 += 1;
-                        }
-
-                        linenums_w_remainder.iter().map(|(g, he, _)| g.display(available_line_width, *he, formatting)).collect()
-                    }
-                }
+                
+                // Distribute the HEIGHT (lines) across all elements
+                let distributed = self.distribute(available_line_num);
+                
+                // Build the lines from each element as finsihed content lines
+                distributed.into_iter().map(|(el, size)| el.display(available_line_width, size, formatting)).collect()
             }
         };
 

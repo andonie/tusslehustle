@@ -558,8 +558,6 @@ impl FrameType {
     }
 
     pub fn top_right(&self) -> char {
-        let x = " ";
-
         match self {
             FrameType::Single => '┐',
             FrameType::Double => '╗',
@@ -583,7 +581,6 @@ impl FrameType {
     pub fn joint(&self, j: JointType) -> char {
         match self {
             FrameType::Single => {
-                let x = "";
                 match j {
                     JointType::TUp => '┴',
                     JointType::TDown => '┬',

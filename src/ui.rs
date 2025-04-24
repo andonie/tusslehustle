@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use crate::characters::{Character, Stats};
 use crate::combat::{ActionStack, Combat, DamageType};
-use crate::layouts::{LayoutDirection, LayoutSizing, LinearLayout};
+use crate::layouts::{LayoutDirection, LayoutWeight, LinearLayout};
 use crate::text::{FrameType, InfoGrid, MakesWords, TextFormatting};
 use crate::world::{TurnLogger, WorldContext};
 
@@ -70,7 +70,7 @@ impl TurnLogger for CombatTurnDisplay {
 /// the
 impl TextUI for CombatTurnDisplay {
     fn render(&self, context: &dyn WorldContext, w: usize, h: usize, formatting: TextFormatting) -> Vec<String> {
-        let mut main_layout = LinearLayout::configure(LayoutDirection::Horizontal, LayoutSizing::Distribute, None );
+        let mut main_layout = LinearLayout::configure(LayoutDirection::Horizontal, None );
         // Collect names of all parties involved (to display all characters of the same party together)
         let all_parties = context.iter_characters().fold(vec![], |mut acc, character| {
             let party_name = character.party();
@@ -80,22 +80,22 @@ impl TextUI for CombatTurnDisplay {
             }
             acc
         });
-        let mut combatant_layout = LinearLayout::configure(LayoutDirection::Horizontal, LayoutSizing::Distribute, None );
-        let mut party_layouts: Vec<LinearLayout> = all_parties.iter().map(|_| LinearLayout::configure(LayoutDirection::Vertical, LayoutSizing::Distribute, Some(FrameType::Single) )).collect();
+        let mut combatant_layout = LinearLayout::configure(LayoutDirection::Horizontal, None );
+        let mut party_layouts: Vec<LinearLayout> = all_parties.iter().map(|_| LinearLayout::configure(LayoutDirection::Vertical, Some(FrameType::Single) )).collect();
 
         for (i, party_name) in all_parties.iter().enumerate() {
             context.iter_characters().filter(|character| character.party() == *party_name).for_each(|character| {
-                party_layouts[i].add(character as &dyn InfoGrid, 1);
+                party_layouts[i].add(character as &dyn InfoGrid, LayoutWeight::Distribute(1));
             });
         }
 
         for layout in party_layouts.iter() {
-            combatant_layout.add(layout, 1);
+            combatant_layout.add(layout, LayoutWeight::Distribute(1));
         }
 
 
-        main_layout.add(&combatant_layout, 2);
-        main_layout.add(&self.turn_description, 1);
+        main_layout.add(&combatant_layout, LayoutWeight::Distribute(2));
+        main_layout.add(&self.turn_description, LayoutWeight::Distribute(1));
 
         // Forward render request to now configured layout
         main_layout.display(w, h, formatting)

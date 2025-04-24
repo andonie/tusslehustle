@@ -9,7 +9,7 @@ use crate::world::WorldContext;
 use crate::mov::{BarehandedBlow, Maneuver, Reaction};
 use crate::text::{BarStyle, InfoGrid, TextFormatting, text_util, InfoLine, MakesWords};
 use crate::equipment::{Equipment, };
-use crate::layouts::{LayoutDirection, LayoutSizing, LinearLayout};
+use crate::layouts::{LayoutDirection, LayoutWeight, LinearLayout};
 
 /// Fundamental stats that any game entity can provide.
 /// These stats are 'dynamic' during gameplay and can change.
@@ -942,9 +942,9 @@ impl InfoGrid for Character {
             // We have more lines available than we need more minimum info.
             // -> Add remaining lines with a layout
             let remaining_lines = h - oneliner_strategies.len();
-            let mut char_layout = LinearLayout::configure(LayoutDirection::Vertical, LayoutSizing::Absolute, None);
+            let mut char_layout = LinearLayout::configure(LayoutDirection::Vertical, None);
 
-            char_layout.add(&self.base_stats, 3);
+            char_layout.add(&self.base_stats, LayoutWeight::Absolute(h-oneliner_strategies.len()));
 
             // build remaining lines via layout and add to output lines
             let remaining_lines = char_layout.display(w, remaining_lines, formatting);
